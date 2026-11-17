@@ -1,0 +1,23 @@
+apiVersion: terraria.dataknife.ai/v1alpha1
+kind: TerrariaServer
+metadata:
+  name: main
+spec:
+  serverType: TSHOCK
+  version:
+    mode: STABLE
+  world:
+    name: main
+    size: MEDIUM
+    difficulty: CLASSIC
+    maxPlayers: 16
+  adminAPI:
+    enabled: true
+  gateway:
+    enabled: true
+    address: "10.0.0.60"
+  persistence:
+    size: 4Gi
+  update:
+    checkInterval: 6h
+    autoUpdateImage: false

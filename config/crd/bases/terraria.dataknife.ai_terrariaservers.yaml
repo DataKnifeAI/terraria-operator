@@ -1,0 +1,492 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: terrariaservers.terraria.dataknife.ai
+spec:
+  group: terraria.dataknife.ai
+  names:
+    kind: TerrariaServer
+    listKind: TerrariaServerList
+    plural: terrariaservers
+    shortNames:
+    - trs
+    - terraria
+    singular: terrariaserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.ready
+      name: Ready
+      type: boolean
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.connectionAddress
+      name: Address
+      type: string
+    - jsonPath: .status.connectionPort
+      name: Port
+      type: integer
+    - jsonPath: .status.installedTerrariaVersion
+      name: Terraria
+      type: string
+    - jsonPath: .status.updateAvailable
+      name: Update
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TerrariaServer is the Schema for the terrariaservers API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TerrariaServerSpec defines the desired state of a Terraria
+              dedicated server.
+            properties:
+              access:
+                description: Access controls optional join password and whitelist.
+                properties:
+                  passwordSecretRef:
+                    description: PasswordSecretRef refs a Secret with key "password"
+                      for -pass.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  whitelist:
+                    description: Whitelist enables TShock whitelist mode when supported
+                      by config.
+                    type: boolean
+                type: object
+              adminAPI:
+                description: AdminAPI controls TShock REST (7878, ClusterIP-only).
+                properties:
+                  enabled:
+                    default: true
+                    description: Enabled toggles REST on 7878. Default true; required
+                      by Server Manager.
+                    type: boolean
+                  port:
+                    default: 7878
+                    description: Port overrides the REST listen port (default 7878).
+                    format: int32
+                    maximum: 65535
+                    minimum: 1024
+                    type: integer
+                  tokenSecretRef:
+                    description: |-
+                      TokenSecretRef is a bring-your-own Secret with key "token".
+                      When unset, the operator bootstraps an owned Secret via REST token create.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              adminUI:
+                description: AdminUI is Phase 3 — Server Manager UI (stub).
+                properties:
+                  enabled:
+                    description: Enabled starts the Server Manager UI (Phase 3).
+                    type: boolean
+                type: object
+              gateway:
+                description: Gateway configures Envoy Gateway exposure (TCP 7777 only).
+                properties:
+                  address:
+                    description: |-
+                      Address is the dedicated external IP (Kube-VIP / MetalLB).
+                      Required when enabled is true; also used as LoadBalancerIP when
+                      enabled is false and serviceType is LoadBalancer.
+                    pattern: ^$|^([0-9]{1,3}\.){3}[0-9]{1,3}$
+                    type: string
+                  className:
+                    default: envoy
+                    description: ClassName is the GatewayClass name.
+                    type: string
+                  enabled:
+                    default: true
+                    description: Enabled creates Gateway + TCPRoute resources. Default
+                      true.
+                    type: boolean
+                  envoyProxyName:
+                    description: EnvoyProxyName overrides the EnvoyProxy resource
+                      name.
+                    type: string
+                  gatewayName:
+                    description: GatewayName overrides the Gateway resource name.
+                    type: string
+                  serviceType:
+                    default: ClusterIP
+                    description: ServiceType overrides the backing Service type when
+                      gateway is disabled.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                type: object
+              imagePullSecrets:
+                description: ImagePullSecrets for private registries.
+                items:
+                  description: |-
+                    LocalObjectReference contains enough information to let you locate the
+                    referenced object inside the same namespace.
+                  properties:
+                    name:
+                      default: ""
+                      description: |-
+                        Name of the referent.
+                        This field is effectively required, but due to backwards compatibility is
+                        allowed to be empty. Instances of this type with an empty value here are
+                        almost certainly wrong.
+                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                type: array
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: NodeSelector pins the game server pod to specific nodes.
+                type: object
+              persistence:
+                description: Persistence configures the worlds / tshock data PVC.
+                properties:
+                  existingClaim:
+                    description: ExistingClaim adopts an existing PVC by name (DR
+                      / restore).
+                    type: string
+                  size:
+                    default: 4Gi
+                    description: Size is the PVC capacity. Default 4Gi.
+                    type: string
+                  storageClassName:
+                    description: StorageClassName selects the StorageClass. Empty
+                      uses the cluster default.
+                    type: string
+                type: object
+              plugins:
+                description: Plugins mounts TShock plugin DLLs (Phase 2 fetch).
+                properties:
+                  enabled:
+                    description: Enabled mounts plugin storage into ServerPlugins/.
+                    type: boolean
+                  mountRef:
+                    description: MountRef is a bring-your-own PVC/ConfigMap name with
+                      DLLs.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  urls:
+                    description: URLs optionally fetch release artifacts into ServerPlugins/
+                      (Phase 2).
+                    items:
+                      type: string
+                    type: array
+                type: object
+              resources:
+                description: Resources overrides default CPU/memory.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              serverImage:
+                description: ServerImage selects the container image.
+                properties:
+                  image:
+                    description: Image is the container image. Empty uses the default
+                      for serverType.
+                    type: string
+                  pullPolicy:
+                    default: IfNotPresent
+                    description: PullPolicy for the game server container.
+                    type: string
+                type: object
+              serverType:
+                default: TSHOCK
+                description: ServerType selects TSHOCK (default) or VANILLA (forces
+                  ryshe-style image).
+                enum:
+                - TSHOCK
+                - VANILLA
+                type: string
+              terminationGracePeriodSeconds:
+                default: 60
+                description: TerminationGracePeriodSeconds for clean world flush on
+                  stop.
+                format: int64
+                minimum: 30
+                type: integer
+              update:
+                description: Update configures the TShock release compat watcher.
+                properties:
+                  autoUpdateImage:
+                    description: |-
+                      AutoUpdateImage when true may retag to latest stable (Phase 2 apply).
+                      Phase 1 is status-only regardless; field is reserved for parity UX.
+                    type: boolean
+                  checkInterval:
+                    default: 6h
+                    description: CheckInterval is how often the reconciler polls TShock
+                      GitHub releases.
+                    type: string
+                type: object
+              version:
+                description: Version controls STABLE vs PINNED image tags.
+                properties:
+                  mode:
+                    default: STABLE
+                    description: Mode selects STABLE (:stable tag) or PINNED (pinnedTag).
+                    enum:
+                    - STABLE
+                    - PINNED
+                    type: string
+                  pinnedTag:
+                    description: PinnedTag is the exact image tag when mode=PINNED
+                      (e.g. "v6.1.0").
+                    type: string
+                type: object
+              world:
+                description: World maps to Terraria server command-line args.
+                properties:
+                  difficulty:
+                    default: CLASSIC
+                    description: 'Difficulty maps to -difficulty: CLASSIC=0, EXPERT=1,
+                      MASTER=2, JOURNEY=3.'
+                    enum:
+                    - CLASSIC
+                    - EXPERT
+                    - MASTER
+                    - JOURNEY
+                    type: string
+                  maxPlayers:
+                    default: 16
+                    description: MaxPlayers maps to -maxplayers.
+                    format: int32
+                    maximum: 255
+                    minimum: 1
+                    type: integer
+                  name:
+                    default: main
+                    description: Name is the world name (-worldname) and .wld basename.
+                    type: string
+                  seed:
+                    description: Seed is optional; blank means random.
+                    type: string
+                  size:
+                    default: MEDIUM
+                    description: 'Size maps to -autocreate: SMALL=1, MEDIUM=2, LARGE=3.'
+                    enum:
+                    - SMALL
+                    - MEDIUM
+                    - LARGE
+                    type: string
+                type: object
+            type: object
+          status:
+            description: TerrariaServerStatus defines the observed state of TerrariaServer.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              connectionAddress:
+                description: ConnectionAddress is the IP clients should use.
+                type: string
+              connectionPort:
+                description: ConnectionPort is the TCP game port (default 7777).
+                format: int32
+                type: integer
+              installedTerrariaVersion:
+                description: InstalledTerrariaVersion is scraped from TShock REST
+                  /logs or startup when known.
+                type: string
+              lastUpdateCheck:
+                description: LastUpdateCheck is when TShock GitHub releases were last
+                  polled.
+                format: date-time
+                type: string
+              latestTShockRelease:
+                description: LatestTShockRelease is the newest TShock GitHub release
+                  tag (without leading v).
+                type: string
+              latestTShockTerrariaVersion:
+                description: LatestTShockTerrariaVersion is the Terraria version that
+                  release supports.
+                type: string
+              message:
+                description: Message is a human-readable status detail.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last reconciled generation.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is Pending, Deploying, Running, or Failed.
+                type: string
+              ready:
+                description: Ready is true when the StatefulSet has a ready replica.
+                type: boolean
+              updateAvailable:
+                description: UpdateAvailable is true when installed Terraria < latest
+                  TShock-supported.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
