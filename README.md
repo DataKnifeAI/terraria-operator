@@ -1,11 +1,16 @@
 # terraria-operator
 
+<p align="center">
+  <img src="docs/assets/hero-terraria.jpg" alt="Terraria Operator — night forest world" width="640">
+</p>
+
 Kubernetes operator for [Terraria](https://terraria.org/) dedicated servers via
 [TShock](https://github.com/Pryaxis/TShock). Sibling to
 [palworld-operator](https://github.com/DataKnifeAI/palworld-operator) /
 [bedrock-operator](https://github.com/DataKnifeAI/bedrock-operator): Go/kubebuilder,
 CRD-first, Envoy Gateway (TCP-only).
 
+**Site:** [dataknifeai.github.io/terraria-operator](https://dataknifeai.github.io/terraria-operator/)  
 **Repos:** [GitHub](https://github.com/DataKnifeAI/terraria-operator)
 
 **Licensing:** We neither bundle nor redistribute Terraria or TShock binaries. The
