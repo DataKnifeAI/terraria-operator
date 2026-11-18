@@ -24,9 +24,11 @@ const (
 	LabelAppManagedBy = "app.kubernetes.io/managed-by"
 	LabelAppComponent = "app.kubernetes.io/component"
 
-	ManagedBy     = "terraria-operator"
-	ComponentGame = "game-server"
-	AppName       = "terraria-server"
+	ManagedBy        = "terraria-operator"
+	ComponentGame    = "game-server"
+	ComponentBackup  = "backup"
+	ComponentPlugins = "plugins"
+	AppName          = "terraria-server"
 
 	SecretKeyToken        = "token"
 	SecretKeyRestPassword = "rest-password"
@@ -66,4 +68,19 @@ func TokenSecretName(server *terrariav1alpha1.TerrariaServer) string {
 		return server.Spec.AdminAPI.TokenSecretRef.Name
 	}
 	return server.Name + "-rest-token"
+}
+
+func PluginsPVCName(server *terrariav1alpha1.TerrariaServer) string {
+	if server.Spec.Plugins.MountRef != nil && server.Spec.Plugins.MountRef.Name != "" {
+		return server.Spec.Plugins.MountRef.Name
+	}
+	return server.Name + "-plugins"
+}
+
+func BackupPVCName(server *terrariav1alpha1.TerrariaServer) string {
+	return server.Name + "-backups"
+}
+
+func BackupCronJobName(server *terrariav1alpha1.TerrariaServer) string {
+	return server.Name + "-backup"
 }

@@ -18,11 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	terrariav1alpha1 "github.com/DataKnifeAI/terraria-operator/api/v1alpha1"
 	"github.com/DataKnifeAI/terraria-operator/internal/tshock"
 	"github.com/DataKnifeAI/terraria-operator/internal/worldcfg"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -31,17 +34,18 @@ type updateResult struct {
 	LatestTShockTerrariaVersion string
 	InstalledTerrariaVersion    string
 	UpdateAvailable             bool
+	Applied                     bool
+	Message                     string
 }
 
-// checkUpdates polls TShock GitHub releases and surfaces Terraria compat in status.
-// Phase 1 is status-only. Phase 2 may apply autoUpdateImage retags.
+// checkUpdates polls TShock GitHub releases and optionally applies autoUpdateImage.
 func (r *TerrariaServerReconciler) checkUpdates(ctx context.Context, server *terrariav1alpha1.TerrariaServer) (updateResult, time.Duration) {
 	log := logf.FromContext(ctx)
 	interval := CheckInterval(server.Spec)
 
 	if server.Status.LastUpdateCheck != nil {
 		elapsed := time.Since(server.Status.LastUpdateCheck.Time)
-		if elapsed < interval && server.Status.LatestTShockRelease != "" {
+		if elapsed < interval && server.Status.LatestTShockRelease != "" && !worldcfg.AutoUpdateImage(server.Spec) {
 			return updateResult{
 				LatestTShockRelease:         server.Status.LatestTShockRelease,
 				LatestTShockTerrariaVersion: server.Status.LatestTShockTerrariaVersion,
@@ -51,12 +55,12 @@ func (r *TerrariaServerReconciler) checkUpdates(ctx context.Context, server *ter
 		}
 	}
 
-	client := r.Versions
-	if client == nil {
-		client = tshock.DefaultVersionClient()
+	verClient := r.Versions
+	if verClient == nil {
+		verClient = tshock.DefaultVersionClient()
 	}
 
-	info, err := client.LatestStable(ctx)
+	info, err := verClient.LatestStable(ctx)
 	if err != nil {
 		log.Info("tshock release check failed", "error", err)
 		return updateResult{
@@ -77,6 +81,17 @@ func (r *TerrariaServerReconciler) checkUpdates(ctx context.Context, server *ter
 	if installed != "" && info.TerrariaVersion != "" {
 		updateAvail = tshock.CompareVersions(installed, info.TerrariaVersion) < 0
 	}
+	// Also treat a newer TShock release tag as available when running STABLE floating tag.
+	mode := strings.ToUpper(strings.TrimSpace(server.Spec.Version.Mode))
+	if mode == "" {
+		mode = terrariav1alpha1.VersionModeStable
+	}
+	pinned := strings.TrimPrefix(strings.TrimSpace(server.Spec.Version.PinnedTag), "v")
+	if mode == terrariav1alpha1.VersionModePinned && pinned != "" && info.TShockVersion != "" {
+		if tshock.CompareVersions(pinned, info.TShockVersion) < 0 {
+			updateAvail = true
+		}
+	}
 
 	res := updateResult{
 		LatestTShockRelease:         info.TShockVersion,
@@ -85,12 +100,46 @@ func (r *TerrariaServerReconciler) checkUpdates(ctx context.Context, server *ter
 		UpdateAvailable:             updateAvail,
 	}
 
-	// Phase 1: never mutate image. Phase 2: honor autoUpdateImage.
-	if updateAvail && worldcfg.AutoUpdateImage(server.Spec) {
-		log.Info("autoUpdateImage requested but Phase 1 is status-only; skipping apply",
-			"latestTShock", info.TShockVersion, "latestTerraria", info.TerrariaVersion)
+	if !updateAvail || !worldcfg.AutoUpdateImage(server.Spec) {
+		return res, interval
 	}
 
+	// Skip if custom image fully overrides repository tagging.
+	if img := strings.TrimSpace(server.Spec.ServerImage.Image); img != "" && !strings.Contains(img, "pryaxis/tshock") {
+		res.Message = "autoUpdateImage skipped: custom serverImage is not pryaxis/tshock"
+		return res, interval
+	}
+
+	targetTag := info.TagName
+	if targetTag == "" {
+		targetTag = "v" + info.TShockVersion
+	}
+	if !strings.HasPrefix(targetTag, "v") {
+		targetTag = "v" + targetTag
+	}
+	currentPinned := strings.TrimSpace(server.Spec.Version.PinnedTag)
+	if mode == terrariav1alpha1.VersionModePinned && currentPinned == targetTag {
+		res.UpdateAvailable = false
+		return res, interval
+	}
+
+	patched := server.DeepCopy()
+	patched.Spec.Version.Mode = terrariav1alpha1.VersionModePinned
+	patched.Spec.Version.PinnedTag = targetTag
+	// Clear floating image override so ImageRef uses repo:tag.
+	if patched.Spec.ServerImage.Image == terrariav1alpha1.DefaultImage ||
+		patched.Spec.ServerImage.Image == "ghcr.io/pryaxis/tshock:stable" {
+		patched.Spec.ServerImage.Image = ""
+	}
+	if err := r.Patch(ctx, patched, client.MergeFrom(server)); err != nil {
+		log.Info("failed to apply autoUpdateImage", "error", err)
+		res.Message = fmt.Sprintf("autoUpdateImage patch failed: %v", err)
+		return res, interval
+	}
+	log.Info("auto-updated version pin", "tag", targetTag, "terraria", info.TerrariaVersion)
+	res.Applied = true
+	res.UpdateAvailable = false
+	res.Message = fmt.Sprintf("auto-updated to %s", targetTag)
 	return res, interval
 }
 

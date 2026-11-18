@@ -16,6 +16,9 @@ linters:
     - unconvert
     - unused
   settings:
+    goconst:
+      min-len: 3
+      min-occurrences: 5
     revive:
       rules:
         - name: comment-spacings
@@ -26,6 +29,9 @@ linters:
       - linters:
           - revive
         path: api/v1alpha1/zz_generated.deepcopy.go
+      - linters:
+          - goconst
+        path: _test\.go
     paths:
       - third_party$
       - bin$

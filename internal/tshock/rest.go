@@ -120,6 +120,24 @@ func (c *Client) Off(ctx context.Context) error {
 	return c.getDiscard(ctx, "/v2/server/off?confirm=true&nosave=false")
 }
 
+// Kick removes a player by name.
+func (c *Client) Kick(ctx context.Context, player, reason string) error {
+	path := "/v2/players/kick?player=" + url.QueryEscape(player)
+	if reason != "" {
+		path += "&reason=" + url.QueryEscape(reason)
+	}
+	return c.getDiscard(ctx, path)
+}
+
+// Ban bans a player by name.
+func (c *Client) Ban(ctx context.Context, player, reason string) error {
+	path := "/v2/players/ban?player=" + url.QueryEscape(player)
+	if reason != "" {
+		path += "&reason=" + url.QueryEscape(reason)
+	}
+	return c.getDiscard(ctx, path)
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
 	return c.doJSON(ctx, path, true, dest)
 }

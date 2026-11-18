@@ -63,6 +63,66 @@ REST listens on **7878** ClusterIP-only (never Gateway-exposed by default).
 TCP-only: Gateway + TCPRoute on port 7777. Set `gateway.address` to a dedicated VIP when
 enabled. Disable Gateway and use `serviceType: LoadBalancer` if preferred.
 
+## Opt-in auto-update (`spec.update`)
+
+```yaml
+spec:
+  update:
+    checkInterval: 6h
+    autoUpdateImage: true   # patches version.mode=PINNED + pinnedTag to latest TShock release
+```
+
+When `autoUpdateImage` is false (default), the compat watcher only flips
+`status.updateAvailable`. When true, the operator pins `ghcr.io/pryaxis/tshock:vX.Y.Z`
+and the StatefulSet rolls (Recreate semantics).
+
+## Annotation commands (REST)
+
+One-shot admin actions via annotation (stripped after run):
+
+```bash
+kubectl annotate terrariaserver main terraria.dataknife.ai/command='broadcast Hello' --overwrite
+kubectl annotate terrariaserver main terraria.dataknife.ai/command=save --overwrite
+kubectl annotate terrariaserver main terraria.dataknife.ai/command='kick Alice' --overwrite
+kubectl annotate terrariaserver main terraria.dataknife.ai/command='ban Bob grief' --overwrite
+kubectl annotate terrariaserver main terraria.dataknife.ai/command=off --overwrite
+```
+
+Results land in `status.lastCommand` / `status.lastCommandResult`.
+
+## Plugins
+
+```yaml
+spec:
+  plugins:
+    enabled: true
+    urls:
+      - https://example.com/MyPlugin.dll
+    # mountRef: { name: my-plugins-pvc }  # bring-your-own instead of owned PVC
+```
+
+Init container fetches URLs into a plugins PVC mounted at `/tshock/ServerPlugins`
+(override with `plugins.path`).
+
+## Backups
+
+```yaml
+spec:
+  backup:
+    enabled: true
+    schedule: "0 4 * * *"
+    retain: 7
+    restSaveFirst: true   # default — hit REST /save before tar
+```
+
+Creates `{name}-backups` PVC + `{name}-backup` CronJob. Archives are
+`/backups/<timestamp>.tar.gz` of the worlds volume.
+
+## Graceful stop
+
+Pods include a `preStop` hook that calls REST `/save` (when a token is present) and
+waits briefly so Terraria can flush `.wld` / `tshock.sqlite` before SIGTERM.
+
 ## Licensing
 
 - Re-Logic distributes the dedicated server zip free from terraria.org (no purchase).

@@ -127,6 +127,45 @@ spec:
                     description: Enabled starts the Server Manager UI (Phase 3).
                     type: boolean
                 type: object
+              backup:
+                description: Backup configures an optional CronJob that tars the worlds
+                  PVC.
+                properties:
+                  enabled:
+                    description: Enabled creates a backup PVC + CronJob. Default false.
+                    type: boolean
+                  image:
+                    default: busybox:1.36
+                    description: Image is the backup job container image. Default
+                      busybox:1.36.
+                    type: string
+                  restSaveFirst:
+                    default: true
+                    description: RESTSaveFirst when true (default) hits TShock REST
+                      /save before tarring.
+                    type: boolean
+                  retain:
+                    default: 7
+                    description: Retain is how many compressed archives to keep. Default
+                      7.
+                    format: int32
+                    maximum: 90
+                    minimum: 1
+                    type: integer
+                  schedule:
+                    default: 0 4 * * *
+                    description: Schedule is a Cron expression (UTC). Default "0 4
+                      * * *" (04:00 daily).
+                    type: string
+                  size:
+                    default: 4Gi
+                    description: Size is the backup PVC capacity. Default 4Gi.
+                    type: string
+                  storageClassName:
+                    description: StorageClassName for the backup PVC. Empty inherits
+                      persistence.storageClassName.
+                    type: string
+                type: object
               gateway:
                 description: Gateway configures Envoy Gateway exposure (TCP 7777 only).
                 properties:
@@ -204,14 +243,15 @@ spec:
                     type: string
                 type: object
               plugins:
-                description: Plugins mounts TShock plugin DLLs (Phase 2 fetch).
+                description: Plugins mounts TShock plugin DLLs (owned PVC and/or URL
+                  fetch).
                 properties:
                   enabled:
                     description: Enabled mounts plugin storage into ServerPlugins/.
                     type: boolean
                   mountRef:
-                    description: MountRef is a bring-your-own PVC/ConfigMap name with
-                      DLLs.
+                    description: MountRef is a bring-your-own PVC name with DLLs (takes
+                      precedence over owned PVC).
                     properties:
                       name:
                         default: ""
@@ -224,9 +264,18 @@ spec:
                         type: string
                     type: object
                     x-kubernetes-map-type: atomic
+                  path:
+                    description: Path overrides the container mount for ServerPlugins/.
+                      Default /tshock/ServerPlugins.
+                    type: string
+                  size:
+                    default: 1Gi
+                    description: Size is the plugins PVC capacity when the operator
+                      creates one. Default 1Gi.
+                    type: string
                   urls:
-                    description: URLs optionally fetch release artifacts into ServerPlugins/
-                      (Phase 2).
+                    description: URLs optionally fetch release artifacts (DLL/zip)
+                      into ServerPlugins/ via init container.
                     items:
                       type: string
                     type: array
@@ -318,12 +367,14 @@ spec:
                 minimum: 30
                 type: integer
               update:
-                description: Update configures the TShock release compat watcher.
+                description: Update configures the TShock release compat watcher /
+                  opt-in image apply.
                 properties:
                   autoUpdateImage:
                     description: |-
-                      AutoUpdateImage when true may retag to latest stable (Phase 2 apply).
-                      Phase 1 is status-only regardless; field is reserved for parity UX.
+                      AutoUpdateImage when true patches version to PINNED at the latest TShock
+                      release tag when an update is available (image roll via StatefulSet recreate).
+                      Default false — opt-in only.
                     type: boolean
                   checkInterval:
                     default: 6h
@@ -453,6 +504,12 @@ spec:
               installedTerrariaVersion:
                 description: InstalledTerrariaVersion is scraped from TShock REST
                   /logs or startup when known.
+                type: string
+              lastCommand:
+                description: LastCommand is the last annotation command that was executed.
+                type: string
+              lastCommandResult:
+                description: LastCommandResult is a short result / error for LastCommand.
                 type: string
               lastUpdateCheck:
                 description: LastUpdateCheck is when TShock GitHub releases were last

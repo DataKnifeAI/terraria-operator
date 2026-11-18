@@ -61,6 +61,13 @@ const (
 	// WorldsMountPath is the documented Worlds directory for ryshe/terraria-style
 	// layouts. Validate against ghcr.io/pryaxis/tshock before production pin.
 	WorldsMountPath = "/root/.local/share/Terraria/Worlds"
+
+	// PluginsMountPath is the TShock ServerPlugins directory inside the container.
+	PluginsMountPath = "/tshock/ServerPlugins"
+
+	// AnnotationCommand triggers a one-shot REST admin action; stripped after run.
+	// Examples: "save", "broadcast Hello", "kick Alice", "ban Bob", "off"
+	AnnotationCommand = "terraria.dataknife.ai/command"
 )
 
 // ServerImageConfig selects the container image. Default is first-party Pryaxis TShock.
@@ -146,19 +153,66 @@ type PersistenceConfig struct {
 	ExistingClaim string `json:"existingClaim,omitempty"`
 }
 
-// PluginsConfig mounts or fetches TShock plugin DLLs (Phase 2 URL fetch).
+// PluginsConfig mounts or fetches TShock plugin DLLs.
 type PluginsConfig struct {
 	// Enabled mounts plugin storage into ServerPlugins/.
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// URLs optionally fetch release artifacts into ServerPlugins/ (Phase 2).
+	// URLs optionally fetch release artifacts (DLL/zip) into ServerPlugins/ via init container.
 	// +optional
 	URLs []string `json:"urls,omitempty"`
 
-	// MountRef is a bring-your-own PVC/ConfigMap name with DLLs.
+	// MountRef is a bring-your-own PVC name with DLLs (takes precedence over owned PVC).
 	// +optional
 	MountRef *corev1.LocalObjectReference `json:"mountRef,omitempty"`
+
+	// Size is the plugins PVC capacity when the operator creates one. Default 1Gi.
+	// +kubebuilder:default="1Gi"
+	// +optional
+	Size string `json:"size,omitempty"`
+
+	// Path overrides the container mount for ServerPlugins/. Default /tshock/ServerPlugins.
+	// +optional
+	Path string `json:"path,omitempty"`
+}
+
+// BackupConfig configures scheduled tar backups of the worlds PVC.
+type BackupConfig struct {
+	// Enabled creates a backup PVC + CronJob. Default false.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Schedule is a Cron expression (UTC). Default "0 4 * * *" (04:00 daily).
+	// +kubebuilder:default="0 4 * * *"
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
+
+	// Retain is how many compressed archives to keep. Default 7.
+	// +kubebuilder:default=7
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=90
+	// +optional
+	Retain int32 `json:"retain,omitempty"`
+
+	// Size is the backup PVC capacity. Default 4Gi.
+	// +kubebuilder:default="4Gi"
+	// +optional
+	Size string `json:"size,omitempty"`
+
+	// StorageClassName for the backup PVC. Empty inherits persistence.storageClassName.
+	// +optional
+	StorageClassName string `json:"storageClassName,omitempty"`
+
+	// Image is the backup job container image. Default busybox:1.36.
+	// +kubebuilder:default="busybox:1.36"
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// RESTSaveFirst when true (default) hits TShock REST /save before tarring.
+	// +kubebuilder:default=true
+	// +optional
+	RESTSaveFirst *bool `json:"restSaveFirst,omitempty"`
 }
 
 // AdminAPIConfig controls the TShock REST API (TCP 7878, ClusterIP-only).
@@ -188,8 +242,9 @@ type UpdateConfig struct {
 	// +optional
 	CheckInterval string `json:"checkInterval,omitempty"`
 
-	// AutoUpdateImage when true may retag to latest stable (Phase 2 apply).
-	// Phase 1 is status-only regardless; field is reserved for parity UX.
+	// AutoUpdateImage when true patches version to PINNED at the latest TShock
+	// release tag when an update is available (image roll via StatefulSet recreate).
+	// Default false — opt-in only.
 	// +optional
 	AutoUpdateImage bool `json:"autoUpdateImage,omitempty"`
 }
@@ -263,15 +318,19 @@ type TerrariaServerSpec struct {
 	// +optional
 	Persistence PersistenceConfig `json:"persistence,omitempty"`
 
-	// Plugins mounts TShock plugin DLLs (Phase 2 fetch).
+	// Plugins mounts TShock plugin DLLs (owned PVC and/or URL fetch).
 	// +optional
 	Plugins PluginsConfig `json:"plugins,omitempty"`
+
+	// Backup configures an optional CronJob that tars the worlds PVC.
+	// +optional
+	Backup BackupConfig `json:"backup,omitempty"`
 
 	// AdminAPI controls TShock REST (7878, ClusterIP-only).
 	// +optional
 	AdminAPI AdminAPIConfig `json:"adminAPI,omitempty"`
 
-	// Update configures the TShock release compat watcher.
+	// Update configures the TShock release compat watcher / opt-in image apply.
 	// +optional
 	Update UpdateConfig `json:"update,omitempty"`
 
@@ -347,6 +406,14 @@ type TerrariaServerStatus struct {
 	// LastUpdateCheck is when TShock GitHub releases were last polled.
 	// +optional
 	LastUpdateCheck *metav1.Time `json:"lastUpdateCheck,omitempty"`
+
+	// LastCommand is the last annotation command that was executed.
+	// +optional
+	LastCommand string `json:"lastCommand,omitempty"`
+
+	// LastCommandResult is a short result / error for LastCommand.
+	// +optional
+	LastCommandResult string `json:"lastCommandResult,omitempty"`
 
 	// Conditions represent the latest available observations.
 	// +optional

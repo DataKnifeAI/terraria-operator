@@ -38,12 +38,13 @@ public-route.
 | Kind | Purpose |
 |------|---------|
 | StatefulSet | Single-instance Terraria pod (`replicas` hard-capped at 1) |
-| PersistentVolumeClaim | Worlds `.wld` + `tshock.sqlite` (+ plugins later) |
+| PersistentVolumeClaim | Worlds `.wld` + `tshock.sqlite`; optional plugins + backups PVCs |
 | Secret | REST bootstrap password + token; optional game password ref |
 | Service (ClusterIP) | Game TCP 7777 + REST 7878 |
 | Service (Envoy backend) | `{name}-envoy` ClusterIP (game only) |
 | Gateway + EnvoyProxy | External VIP binding |
 | TCPRoute | Game `7777/TCP` |
+| CronJob | Optional `{name}-backup` (REST save + tar) |
 
 ## Design rules
 
@@ -52,8 +53,9 @@ public-route.
 | StatefulSet, replicas=1 | Single-instance + port bind |
 | TCP-only Gateway | Terraria is TCP; no UDPRoute edge cases |
 | World on PVC | Recreate-safe; no world-identity seeding |
-| Compat watcher status-only (Phase 1) | Surface Terraria drift; never surprise-roll |
+| Update watcher + opt-in apply | Status by default; `autoUpdateImage` pins TShock tags |
 | REST token bootstrap | Novel vs palworld; idempotent via status probe |
+| Annotation commands | One-shot REST admin via `terraria.dataknife.ai/command` |
 | Consume published images | Licensing; no operator-built game images |
 
 ## Images

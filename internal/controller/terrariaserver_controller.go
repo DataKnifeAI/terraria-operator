@@ -28,6 +28,7 @@ import (
 	"github.com/DataKnifeAI/terraria-operator/internal/worldcfg"
 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -62,6 +63,7 @@ type TerrariaServerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=cronjobs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=tcproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gatewayclasses,verbs=get;list;watch
@@ -170,6 +172,31 @@ func (r *TerrariaServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	// 2b. Plugins PVC.
+	if pvc := provisioner.BuildPluginsPVC(server); pvc != nil {
+		if err := controllerutil.SetControllerReference(server, pvc, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.applyObject(ctx, pvc); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if server.Spec.Plugins.Enabled && server.Spec.Plugins.MountRef != nil && server.Spec.Plugins.MountRef.Name != "" {
+		existing := &corev1.PersistentVolumeClaim{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: server.Namespace, Name: server.Spec.Plugins.MountRef.Name}, existing); err != nil {
+			_ = r.patchStatus(ctx, server, func(s *terrariav1alpha1.TerrariaServer) {
+				s.Status.Phase = terrariav1alpha1.PhaseFailed
+				s.Status.Ready = false
+				s.Status.Message = fmt.Sprintf("plugins.mountRef %q not found: %v", server.Spec.Plugins.MountRef.Name, err)
+			})
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// 2c. Backup PVC + CronJob.
+	if err := r.reconcileBackup(ctx, server); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// 3. Service.
 	svc := provisioner.BuildService(server)
 	if err := controllerutil.SetControllerReference(server, svc, r.Scheme); err != nil {
@@ -225,8 +252,20 @@ func (r *TerrariaServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 
-	// 7. Compat / update watcher (status-only in Phase 1).
+	// 6b. Annotation commands (REST-backed; strip after run).
+	cmdRes, err := r.handleAnnotationCommand(ctx, server)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 7. Compat / update watcher (+ opt-in autoUpdateImage apply).
 	updateRes, requeueAfter := r.checkUpdates(ctx, server)
+	if updateRes.Applied {
+		return ctrl.Result{Requeue: true}, nil
+	}
+	if updateRes.Message != "" {
+		message = message + "; " + updateRes.Message
+	}
 
 	_ = r.patchStatus(ctx, server, func(s *terrariav1alpha1.TerrariaServer) {
 		s.Status.Phase = phase
@@ -235,6 +274,10 @@ func (r *TerrariaServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		s.Status.ConnectionAddress = connAddr
 		s.Status.ConnectionPort = worldcfg.GamePort()
 		s.Status.ObservedGeneration = server.Generation
+		if cmdRes.Ran {
+			s.Status.LastCommand = cmdRes.Command
+			s.Status.LastCommandResult = cmdRes.Message
+		}
 		if updateRes.LatestTShockRelease != "" {
 			s.Status.LatestTShockRelease = updateRes.LatestTShockRelease
 			s.Status.LatestTShockTerrariaVersion = updateRes.LatestTShockTerrariaVersion
@@ -374,9 +417,43 @@ func (r *TerrariaServerReconciler) applyObject(ctx context.Context, obj client.O
 		cur.OwnerReferences = desired.OwnerReferences
 		cur.Spec = desired.Spec
 		return r.Update(ctx, cur)
+	case *batchv1.CronJob:
+		cur := existing.(*batchv1.CronJob)
+		cur.Labels = desired.Labels
+		cur.OwnerReferences = desired.OwnerReferences
+		cur.Spec = desired.Spec
+		return r.Update(ctx, cur)
 	default:
 		return fmt.Errorf("unsupported apply type %T", obj)
 	}
+}
+
+func (r *TerrariaServerReconciler) reconcileBackup(ctx context.Context, server *terrariav1alpha1.TerrariaServer) error {
+	if !server.Spec.Backup.Enabled {
+		cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{
+			Name: provisioner.BackupCronJobName(server), Namespace: server.Namespace,
+		}}
+		if err := r.Delete(ctx, cj); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+	if pvc := provisioner.BuildBackupPVC(server); pvc != nil {
+		if err := controllerutil.SetControllerReference(server, pvc, r.Scheme); err != nil {
+			return err
+		}
+		if err := r.applyObject(ctx, pvc); err != nil {
+			return err
+		}
+	}
+	cj := provisioner.BuildBackupCronJob(server)
+	if cj == nil {
+		return nil
+	}
+	if err := controllerutil.SetControllerReference(server, cj, r.Scheme); err != nil {
+		return err
+	}
+	return r.applyObject(ctx, cj)
 }
 
 func (r *TerrariaServerReconciler) patchStatus(ctx context.Context, server *terrariav1alpha1.TerrariaServer, mutate func(*terrariav1alpha1.TerrariaServer)) error {
@@ -413,6 +490,7 @@ func (r *TerrariaServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&batchv1.CronJob{}).
 		Owns(&gatewayv1.Gateway{}).
 		Owns(&gatewayv1alpha2.TCPRoute{}).
 		Owns(&egv1a1.EnvoyProxy{}).

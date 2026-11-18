@@ -31,7 +31,14 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const dataMountPath = terrariav1alpha1.WorldsMountPath
+const (
+	dataMountPath = terrariav1alpha1.WorldsMountPath
+	volData       = "data"
+	volPlugins    = ComponentPlugins
+	volBackups    = "backups"
+	portNameGame  = "game"
+	portNameREST  = "rest"
+)
 
 // BuildPVC creates the worlds / tshock data volume.
 // When ExistingClaim is set, returns nil — caller adopts the named claim.
@@ -72,7 +79,7 @@ func BuildService(server *terrariav1alpha1.TerrariaServer) *corev1.Service {
 
 	ports := []corev1.ServicePort{
 		{
-			Name:       "game",
+			Name:       portNameGame,
 			Protocol:   corev1.ProtocolTCP,
 			Port:       port,
 			TargetPort: intstr.FromInt32(port),
@@ -81,7 +88,7 @@ func BuildService(server *terrariav1alpha1.TerrariaServer) *corev1.Service {
 	if worldcfg.AdminAPIEnabled(server.Spec) {
 		rest := worldcfg.RESTPort(server.Spec)
 		ports = append(ports, corev1.ServicePort{
-			Name:       "rest",
+			Name:       portNameREST,
 			Protocol:   corev1.ProtocolTCP,
 			Port:       rest,
 			TargetPort: intstr.FromInt32(rest),
@@ -153,12 +160,12 @@ func BuildStatefulSet(server *terrariav1alpha1.TerrariaServer, args []string) *a
 	resources := defaultResources(server)
 
 	containerPorts := []corev1.ContainerPort{
-		{Name: "game", ContainerPort: port, Protocol: corev1.ProtocolTCP},
+		{Name: portNameGame, ContainerPort: port, Protocol: corev1.ProtocolTCP},
 	}
 	if worldcfg.AdminAPIEnabled(server.Spec) {
 		rest := worldcfg.RESTPort(server.Spec)
 		containerPorts = append(containerPorts, corev1.ContainerPort{
-			Name: "rest", ContainerPort: rest, Protocol: corev1.ProtocolTCP,
+			Name: portNameREST, ContainerPort: rest, Protocol: corev1.ProtocolTCP,
 		})
 	}
 
@@ -193,13 +200,62 @@ func BuildStatefulSet(server *terrariav1alpha1.TerrariaServer, args []string) *a
 		env = append(env,
 			corev1.EnvVar{Name: "TSHOCK_REST_ENABLED", Value: "true"},
 			corev1.EnvVar{Name: "TSHOCK_REST_PORT", Value: strconv.FormatInt(int64(worldcfg.RESTPort(server.Spec)), 10)},
+			corev1.EnvVar{
+				Name: "TSHOCK_REST_TOKEN",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: TokenSecretName(server)},
+						Key:                  SecretKeyToken,
+						Optional:             ptr.To(true),
+					},
+				},
+			},
 		)
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{Name: volData, MountPath: dataMountPath},
+	}
+	volumes := []corev1.Volume{{
+		Name: volData,
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: PVCName(server),
+			},
+		},
+	}}
+	var initContainers []corev1.Container
+	if server.Spec.Plugins.Enabled {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name: volPlugins, MountPath: PluginsPath(server.Spec),
+		})
+		volumes = append(volumes, corev1.Volume{
+			Name: volPlugins,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: PluginsPVCName(server),
+				},
+			},
+		})
+		if init := PluginFetchInitContainer(server); init != nil {
+			initContainers = append(initContainers, *init)
+		}
+	}
+
+	// Graceful stop: REST save when token is present, then brief wait for flush.
+	lifecycle := &corev1.Lifecycle{
+		PreStop: &corev1.LifecycleHandler{
+			Exec: &corev1.ExecAction{
+				Command: []string{"/bin/sh", "-c", gracefulStopScript(server)},
+			},
+		},
 	}
 
 	podSpec := corev1.PodSpec{
 		TerminationGracePeriodSeconds: &grace,
 		ImagePullSecrets:              server.Spec.ImagePullSecrets,
 		NodeSelector:                  server.Spec.NodeSelector,
+		InitContainers:                initContainers,
 		SecurityContext: &corev1.PodSecurityContext{
 			FSGroup: ptr.To(int64(0)),
 		},
@@ -213,23 +269,15 @@ func BuildStatefulSet(server *terrariav1alpha1.TerrariaServer, args []string) *a
 			Stdin:           true,
 			Ports:           containerPorts,
 			Resources:       resources,
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "data", MountPath: dataMountPath},
-			},
-			ReadinessProbe: readiness,
-			LivenessProbe:  liveness,
+			VolumeMounts:    volumeMounts,
+			Lifecycle:       lifecycle,
+			ReadinessProbe:  readiness,
+			LivenessProbe:   liveness,
 			SecurityContext: &corev1.SecurityContext{
 				AllowPrivilegeEscalation: ptr.To(false),
 			},
 		}},
-		Volumes: []corev1.Volume{{
-			Name: "data",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: PVCName(server),
-				},
-			},
-		}},
+		Volumes: volumes,
 	}
 
 	return &appsv1.StatefulSet{
@@ -280,4 +328,14 @@ func randomHex(nBytes int) string {
 		return "terraria-operator-bootstrap"
 	}
 	return hex.EncodeToString(b)
+}
+
+func gracefulStopScript(server *terrariav1alpha1.TerrariaServer) string {
+	if !worldcfg.AdminAPIEnabled(server.Spec) {
+		return "sleep 8"
+	}
+	port := worldcfg.RESTPort(server.Spec)
+	return "if [ -n \"${TSHOCK_REST_TOKEN:-}\" ]; then " +
+		"wget -q -O- \"http://127.0.0.1:" + strconv.FormatInt(int64(port), 10) + "/v2/server/save?token=${TSHOCK_REST_TOKEN}\" || true; " +
+		"fi; sleep 8"
 }

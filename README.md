@@ -20,9 +20,8 @@ TShock is GPL-3.0. Alternative: `ryshe/terraria` when `spec.serverType: VANILLA`
 
 ## Status
 
-Phase 1 MVP: `TerrariaServer` CRD, StatefulSet/PVC/TCPRoute/Service reconcile,
-world-args assembly, REST token bootstrap, TShock compat/update watcher (status-only),
-envtest suite, docs.
+Phase 2: Phase 1 plus opt-in `autoUpdateImage`, backup CronJob, plugin PVC/URL fetch,
+graceful-stop hooks, and REST annotation commands (`terraria.dataknife.ai/command`).
 
 ## Docs
 
