@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 const finalizerName = "terraria.dataknife.ai/finalizer"
@@ -411,8 +410,8 @@ func (r *TerrariaServerReconciler) applyObject(ctx context.Context, obj client.O
 		cur.OwnerReferences = desired.OwnerReferences
 		cur.Spec = desired.Spec
 		return r.Update(ctx, cur)
-	case *gatewayv1alpha2.TCPRoute:
-		cur := existing.(*gatewayv1alpha2.TCPRoute)
+	case *gatewayv1.TCPRoute:
+		cur := existing.(*gatewayv1.TCPRoute)
 		cur.Labels = desired.Labels
 		cur.OwnerReferences = desired.OwnerReferences
 		cur.Spec = desired.Spec
@@ -492,7 +491,7 @@ func (r *TerrariaServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&batchv1.CronJob{}).
 		Owns(&gatewayv1.Gateway{}).
-		Owns(&gatewayv1alpha2.TCPRoute{}).
+		Owns(&gatewayv1.TCPRoute{}).
 		Owns(&egv1a1.EnvoyProxy{}).
 		Named("terrariaserver").
 		Complete(r)

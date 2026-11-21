@@ -38,7 +38,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 
 	terrariav1alpha1 "github.com/DataKnifeAI/terraria-operator/api/v1alpha1"
 	"github.com/DataKnifeAI/terraria-operator/internal/controller"
@@ -54,7 +53,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(terrariav1alpha1.AddToScheme(scheme))
 	utilruntime.Must(gatewayv1.Install(scheme))
-	utilruntime.Must(gatewayv1alpha2.Install(scheme))
 	utilruntime.Must(egv1a1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }

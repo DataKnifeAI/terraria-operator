@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )
 
 const (
@@ -145,7 +144,7 @@ func BuildGateway(server *terrariav1alpha1.TerrariaServer) *gatewayv1.Gateway {
 		},
 		Spec: gatewayv1.GatewaySpec{
 			GatewayClassName: gatewayv1.ObjectName(className(server.Spec)),
-			Addresses: []gatewayv1.GatewayAddress{
+			Addresses: []gatewayv1.GatewaySpecAddress{
 				{Type: ptr.To(gatewayv1.IPAddressType), Value: server.Spec.Gateway.Address},
 			},
 			Infrastructure: &gatewayv1.GatewayInfrastructure{
@@ -166,16 +165,16 @@ func BuildGateway(server *terrariav1alpha1.TerrariaServer) *gatewayv1.Gateway {
 }
 
 // BuildTCPRoute routes game TCP to the envoy backend Service.
-func BuildTCPRoute(server *terrariav1alpha1.TerrariaServer) *gatewayv1alpha2.TCPRoute {
+func BuildTCPRoute(server *terrariav1alpha1.TerrariaServer) *gatewayv1.TCPRoute {
 	names := DeriveNames(server)
 	port := worldcfg.GamePort()
-	return &gatewayv1alpha2.TCPRoute{
+	return &gatewayv1.TCPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      names.GameRoute,
 			Namespace: server.Namespace,
 			Labels:    gatewayLabels(server),
 		},
-		Spec: gatewayv1alpha2.TCPRouteSpec{
+		Spec: gatewayv1.TCPRouteSpec{
 			CommonRouteSpec: gatewayv1.CommonRouteSpec{
 				ParentRefs: []gatewayv1.ParentReference{{
 					Name:        gatewayv1.ObjectName(names.Gateway),
@@ -183,8 +182,8 @@ func BuildTCPRoute(server *terrariav1alpha1.TerrariaServer) *gatewayv1alpha2.TCP
 					SectionName: ptr.To(gatewayv1.SectionName(ListenerGameTCP)),
 				}},
 			},
-			Rules: []gatewayv1alpha2.TCPRouteRule{{
-				BackendRefs: []gatewayv1alpha2.BackendRef{{
+			Rules: []gatewayv1.TCPRouteRule{{
+				BackendRefs: []gatewayv1.BackendRef{{
 					BackendObjectReference: gatewayv1.BackendObjectReference{
 						Name: gatewayv1.ObjectName(names.EnvoySvc),
 						Port: ptr.To(gatewayv1.PortNumber(port)),
