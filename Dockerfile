@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM docker.io/golang:1.25 AS builder
+FROM docker.io/golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -13,10 +13,12 @@ COPY api/ api/
 COPY internal/ internal/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o server-manager cmd/server-manager/main.go
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/server-manager /server-manager
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
